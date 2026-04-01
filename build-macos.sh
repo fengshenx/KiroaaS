@@ -24,6 +24,9 @@ fi
 
 echo "Prerequisites OK"
 
+# Set up PATH: miniconda3 (Python), cargo, nvm node
+export PATH="/Users/mxwu/miniconda3/bin:$HOME/.cargo/bin:$HOME/.nvm/versions/node/v22.22.0/bin:$PATH"
+
 # Install Node dependencies
 echo "Installing Node dependencies..."
 npm install
@@ -45,6 +48,14 @@ cd ../..
 echo "Packaging Python backend..."
 rm -rf src-tauri/resources/kiro-gateway
 mkdir -p src-tauri/resources
+
+# Sign all native binaries in the Python backend before tarring
+echo "Signing Python backend binaries..."
+SIGN_IDENTITY="Developer ID Application: Mingxi Wu (65B2283FZJ)"
+find python-backend/build/dist/kiro-gateway -type f \( -name "*.so" -o -name "*.dylib" -o -type f -perm +111 \) | while read bin; do
+    codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime "$bin" 2>/dev/null || true
+done
+
 cd python-backend/build/dist
 tar czf ../../../src-tauri/resources/kiro-gateway.tar.gz kiro-gateway
 cd ../../..
@@ -64,9 +75,28 @@ export PATH="$XATTR_SHIM_DIR:$PATH"
 
 # Build Tauri app
 echo "Building macOS app..."
-export TAURI_PRIVATE_KEY=$(cat ~/.tauri/kiroaas.key)
-export TAURI_KEY_PASSWORD=""
+# export TAURI_PRIVATE_KEY=$(cat ~/.tauri/kiroaas.key)
+# export TAURI_KEY_PASSWORD=""
+export TAURI_SIGNING_IDENTITY="Developer ID Application: Mingxi Wu (65B2283FZJ)"
 npm run tauri:build
+
+# Notarize (requires APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID env vars)
+if [[ -n "$APPLE_ID" && -n "$APPLE_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+    echo "Submitting to Apple for notarization..."
+    DMG_PATH=$(ls src-tauri/target/release/bundle/dmg/KiroaaS_*.dmg 2>/dev/null | head -1)
+    if [[ -n "$DMG_PATH" ]]; then
+        xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID"
+        xcrun stapler staple "$DMG_PATH"
+        echo "Notarization complete."
+    else
+        echo "DMG not found, skipping notarization."
+    fi
+else
+    echo "Skipping notarization (APPLE_ID, APPLE_PASSWORD, or APPLE_TEAM_ID not set)."
+fi
 
 rm -rf "$XATTR_SHIM_DIR"
 

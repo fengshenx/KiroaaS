@@ -68,7 +68,7 @@
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,
-        "signingIdentity": "-"
+        "signingIdentity": "Developer ID Application: Mingxi Wu (65B2283FZJ)"
       },
       "shortDescription": "KiroaaS Desktop Client",
       "targets": "all",
@@ -82,7 +82,7 @@
       "csp": null
     },
     "updater": {
-      "active": true,
+      "active": false,
       "endpoints": [
         "https://kiroaas.hnew.city/releases/latest.json"
       ],

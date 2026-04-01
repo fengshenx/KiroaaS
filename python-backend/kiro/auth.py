@@ -342,12 +342,10 @@ class KiroAuthManager:
             if 'profileArn' in data:
                 self._profile_arn = data['profileArn']
             if 'region' in data and data['region']:
-                self._region = data['region']
-                # Update URLs for new region
-                self._refresh_url = get_kiro_refresh_url(self._region)
-                self._api_host = get_kiro_api_host(self._region)
-                self._q_host = get_kiro_q_host(self._region)
-                logger.info(f"Region updated from credentials file: region={self._region}, api_host={self._api_host}, q_host={self._q_host}")
+                # Store region for SSO/OIDC token refresh only, don't update API host
+                # This allows auth in one region (e.g., ap-southeast-1) while API stays in another (e.g., us-east-1)
+                self._sso_region = data['region']
+                logger.info(f"Region loaded from credentials file: sso_region={self._sso_region} (API stays at {self._region}, api_host={self._api_host}, q_host={self._q_host})")
             
             # Load clientIdHash and device registration for Enterprise Kiro IDE
             if 'clientIdHash' in data:

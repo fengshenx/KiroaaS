@@ -159,16 +159,7 @@ async fn get_server_logs(state: State<'_, AppState>) -> Result<Vec<String>, Stri
 /// Check for application updates
 #[tauri::command]
 async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, String> {
-    match app.updater().check().await {
-        Ok(update) => {
-            if update.is_update_available() {
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        }
-        Err(e) => Err(format!("Failed to check for updates: {}", e)),
-    }
+    Ok(false)
 }
 
 /// Get the application version
@@ -252,18 +243,7 @@ fn get_device_model() -> String {
 /// Install pending update and restart
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    match app.updater().check().await {
-        Ok(update) => {
-            if update.is_update_available() {
-                update.download_and_install().await
-                    .map_err(|e| format!("Failed to install update: {}", e))?;
-                Ok(())
-            } else {
-                Err("No update available".to_string())
-            }
-        }
-        Err(e) => Err(format!("Failed to check for updates: {}", e)),
-    }
+    Err("Updater is disabled".to_string())
 }
 
 /// Clear server logs
