@@ -158,7 +158,7 @@ async fn get_server_logs(state: State<'_, AppState>) -> Result<Vec<String>, Stri
 
 /// Check for application updates
 #[tauri::command]
-async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, String> {
+async fn check_for_updates(_app: tauri::AppHandle) -> Result<bool, String> {
     Ok(false)
 }
 
@@ -191,7 +191,7 @@ fn apply_auto_launch(enabled: bool) -> Result<(), String> {
 
     let app_str = app_path.to_str()
         .ok_or_else(|| "App path is not valid UTF-8".to_string())?;
-    let auto = AutoLaunch::new("KiroaaS", app_str, false, &[] as &[&str]);
+    let auto = AutoLaunch::new("KiroaaS", app_str, &[] as &[&str]);
     if enabled {
         auto.enable().map_err(|e| format!("Failed to enable auto-launch: {}", e))
     } else {
@@ -242,7 +242,7 @@ fn get_device_model() -> String {
 
 /// Install pending update and restart
 #[tauri::command]
-async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+async fn install_update(_app: tauri::AppHandle) -> Result<(), String> {
     Err("Updater is disabled".to_string())
 }
 
