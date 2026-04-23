@@ -20,29 +20,66 @@ fi
 
 echo "Building for: $CARGO_TARGET"
 
-# Check prerequisites
-echo "Checking prerequisites..."
+# Detect CI environment
+IS_CI="${GITHUB_ACTIONS:-false}"
 
+# =============================================================================
+# Auto-install prerequisites if missing
+# =============================================================================
+
+# --- Rust ---
 if ! command -v rustc &> /dev/null; then
-    echo "Error: Rust not installed. Run:"
-    echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
-    exit 1
+    echo "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
 fi
 
-if ! command -v node &> /dev/null; then
-    echo "Error: Node.js not installed"
-    exit 1
+# --- Python (miniconda3) ---
+# Prefer local miniconda3, fall back to installing it
+MINICONDA="$HOME/miniconda3/bin/python3"
+if [[ -x "$MINICONDA" ]]; then
+    PYTHON_BIN="$MINICONDA"
+elif command -v python3 &> /dev/null; then
+    PYTHON_BIN="python3"
+else
+    echo "Installing Miniconda3..."
+    INSTALLER="Miniconda3-latest-MacOSX-${ARCH_LABEL}.sh"
+    curl -sSL "https://repo.anaconda.com/miniconda/$INSTALLER" -o /tmp/miniconda.sh
+    bash /tmp/miniconda.sh -b -p "$HOME/miniconda3"
+    rm /tmp/miniconda.sh
+    PYTHON_BIN="$HOME/miniconda3/bin/python3"
 fi
 
-if ! command -v python3 &> /dev/null; then
-    echo "Error: Python3 not installed"
-    exit 1
+# --- Node.js (nvm) ---
+NODE_VERSION="22.22.0"
+NVM_NODE="$HOME/.nvm/versions/node/v${NODE_VERSION}/bin/node"
+if [[ -x "$NVM_NODE" ]]; then
+    NODE_BIN="$NVM_NODE"
+elif command -v node &> /dev/null; then
+    NODE_BIN="node"
+elif [[ -d "$HOME/.nvm" ]]; then
+    echo "Installing Node.js $NODE_VERSION via nvm..."
+    source "$HOME/.nvm/nvm.sh" 2>/dev/null || true
+    nvm install "$NODE_VERSION"
+    nvm use "$NODE_VERSION"
+    NODE_BIN="$NVM_NODE"
+else
+    echo "Installing Node.js $NODE_VERSION..."
+    curl -sSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-${ARCH_LABEL}.tar.gz" -o /tmp/node.tar.gz
+    tar -xzf /tmp/node.tar.gz -C /tmp
+    mkdir -p "$HOME/.local/bin"
+    mv "/tmp/node-v${NODE_VERSION}-darwin-${ARCH_LABEL}/bin/"* "$HOME/.local/bin/"
+    rm -rf /tmp/node.tar.gz /tmp/node-v${NODE_VERSION}-darwin-${ARCH_LABEL}
+    NODE_BIN="$HOME/.local/bin/node"
 fi
 
+# Set up PATH with explicit tool paths first
+export PATH="$HOME/.cargo/bin:$($PYTHON_BIN -c 'import sysconfig; print(sysconfig.get_path("scripts"))' 2>/dev/null || echo "$HOME/miniconda3/bin"):$($NODE_BIN --version &>/dev/null && dirname $($NODE_BIN -e "console.log(process.execPath)")):$PATH"
+
+echo "Python: $($PYTHON_BIN --version)"
+echo "Node:   $($NODE_BIN --version)"
+echo "Rust:   $(rustc --version)"
 echo "Prerequisites OK"
-
-# Set up PATH: miniconda3 (Python), cargo, nvm node
-export PATH="/Users/mxwu/miniconda3/bin:$HOME/.cargo/bin:$HOME/.nvm/versions/node/v22.22.0/bin:$PATH"
 
 # Install Node dependencies
 echo "Installing Node dependencies..."
