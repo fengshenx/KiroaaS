@@ -20,6 +20,18 @@ fi
 
 echo "Building for: $CARGO_TARGET"
 
+# Commands that must run as the target CPU architecture. Cargo can cross-compile
+# macOS targets, but PyInstaller cannot; it must run under the target arch.
+ARCH_RUN=()
+if [[ "$(uname -m)" == "arm64" && "$ARCH_LABEL" == "x86_64" ]]; then
+    if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+        echo "Rosetta 2 is required to build x86_64 Python binaries on Apple Silicon."
+        echo "Install it with: softwareupdate --install-rosetta --agree-to-license"
+        exit 1
+    fi
+    ARCH_RUN=(arch -x86_64)
+fi
+
 # Detect CI environment
 IS_CI="${GITHUB_ACTIONS:-false}"
 
@@ -35,21 +47,27 @@ if ! command -v rustc &> /dev/null; then
 fi
 
 # --- Python (miniconda3) ---
-# Prefer local miniconda3, fall back to installing it
-MINICONDA="$HOME/miniconda3/bin/python3"
+# Use a target-architecture Python. PyInstaller cannot cross-compile, so an
+# Intel build on Apple Silicon must use an x86_64 Python running via Rosetta.
+if [[ "$ARCH_LABEL" == "x86_64" ]]; then
+    CONDA_DIR="$HOME/miniconda3-x86_64"
+else
+    CONDA_DIR="$HOME/miniconda3"
+fi
+MINICONDA="$CONDA_DIR/bin/python3"
 if [[ -x "$MINICONDA" ]]; then
     PYTHON_BIN="$MINICONDA"
-elif command -v python3 &> /dev/null; then
+elif [[ "$ARCH_LABEL" == "arm64" ]] && command -v python3 &> /dev/null; then
     PYTHON_BIN="python3"
 else
-    echo "Installing Miniconda3..."
+    echo "Installing Miniconda3 for $ARCH_LABEL..."
     INSTALLER="Miniconda3-latest-MacOSX-${ARCH_LABEL}.sh"
     curl -sSL "https://repo.anaconda.com/miniconda/$INSTALLER" -o /tmp/miniconda.sh
-    bash /tmp/miniconda.sh -b -p "$HOME/miniconda3"
+    "${ARCH_RUN[@]}" /bin/bash /tmp/miniconda.sh -b -p "$CONDA_DIR"
     rm /tmp/miniconda.sh
-    PYTHON_BIN="$HOME/miniconda3/bin/python3"
+    PYTHON_BIN="$CONDA_DIR/bin/python3"
     # Force conda to use the target subdir
-    "$HOME/miniconda3/bin/conda" config --env --set subdir osx-${ARCH_LABEL}
+    "${ARCH_RUN[@]}" "$CONDA_DIR/bin/conda" config --env --set subdir "osx-${ARCH_LABEL}"
 fi
 
 # --- Node.js (nvm) ---
@@ -76,9 +94,11 @@ else
 fi
 
 # Set up PATH with explicit tool paths first
-export PATH="$HOME/.cargo/bin:$($PYTHON_BIN -c 'import sysconfig; print(sysconfig.get_path("scripts"))' 2>/dev/null || echo "$HOME/miniconda3/bin"):$($NODE_BIN --version &>/dev/null && dirname $($NODE_BIN -e "console.log(process.execPath)")):$PATH"
+PYTHON_SCRIPTS_DIR=$("${ARCH_RUN[@]}" "$PYTHON_BIN" -c 'import sysconfig; print(sysconfig.get_path("scripts"))' 2>/dev/null || echo "$CONDA_DIR/bin")
+NODE_DIR=$($NODE_BIN --version &>/dev/null && dirname $($NODE_BIN -e "console.log(process.execPath)"))
+export PATH="$HOME/.cargo/bin:$PYTHON_SCRIPTS_DIR:$NODE_DIR:$PATH"
 
-echo "Python: $($PYTHON_BIN --version)"
+echo "Python: $("${ARCH_RUN[@]}" "$PYTHON_BIN" --version) ($("${ARCH_RUN[@]}" "$PYTHON_BIN" -c 'import platform; print(platform.machine())'))"
 echo "Node:   $($NODE_BIN --version)"
 echo "Rust:   $(rustc --version)"
 echo "Prerequisites OK"
@@ -90,14 +110,15 @@ npm install
 # Install Python dependencies
 echo "Installing Python dependencies..."
 cd python-backend
-pip3 install --break-system-packages -r requirements.txt
-pip3 install --break-system-packages pyinstaller
+"${ARCH_RUN[@]}" "$PYTHON_BIN" -m pip install --break-system-packages -r requirements.txt
+"${ARCH_RUN[@]}" "$PYTHON_BIN" -m pip install --break-system-packages pyinstaller
 cd ..
 
 # Build Python backend
 echo "Building Python backend..."
 cd python-backend/build
-python3 build.py
+rm -rf build dist
+"${ARCH_RUN[@]}" "$PYTHON_BIN" build.py
 cd ../..
 
 # Copy to Tauri resources (compressed to avoid Tauri bundling issues with .so files)
@@ -131,19 +152,14 @@ export PATH="$XATTR_SHIM_DIR:$PATH"
 echo "Building macOS app for $ARCH_LABEL..."
 export TAURI_SIGNING_IDENTITY="Developer ID Application: Mingxi Wu (65B2283FZJ)"
 
-# Build Rust binary first with correct target
-echo "Building Rust binary for $CARGO_TARGET..."
-cd src-tauri
-cargo build --release --target "$CARGO_TARGET"
-# Copy to where Tauri expects it (tauri build looks in target/release/)
-cp "target/$CARGO_TARGET/release/kiroaas" "target/release/kiroaas"
-cd ..
+rustup target add "$CARGO_TARGET"
+npm run tauri:build -- --target "$CARGO_TARGET"
 
-# Now run tauri build (it will skip cargo build since binary exists)
-npm run tauri:build
+TARGET_RELEASE_DIR="src-tauri/target/$CARGO_TARGET/release"
+BUNDLE_DIR="$TARGET_RELEASE_DIR/bundle"
 
 # Rename DMG to include arch label
-DMG_PATH=$(ls src-tauri/target/release/bundle/dmg/KiroaaS_*.dmg 2>/dev/null | head -1)
+DMG_PATH=$(ls "$BUNDLE_DIR"/dmg/KiroaaS_*.dmg 2>/dev/null | head -1)
 if [[ -n "$DMG_PATH" ]]; then
     mv "$DMG_PATH" "${DMG_PATH%.dmg}_${ARCH_LABEL}.dmg"
 fi
@@ -151,7 +167,7 @@ fi
 # Notarize (requires APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID env vars)
 if [[ -n "$APPLE_ID" && -n "$APPLE_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
     echo "Submitting to Apple for notarization..."
-    DMG_PATH=$(ls src-tauri/target/release/bundle/dmg/KiroaaS_*.dmg 2>/dev/null | head -1)
+    DMG_PATH=$(ls "$BUNDLE_DIR"/dmg/KiroaaS_*.dmg 2>/dev/null | head -1)
     if [[ -n "$DMG_PATH" ]]; then
         xcrun notarytool submit "$DMG_PATH" \
             --apple-id "$APPLE_ID" \
@@ -171,5 +187,5 @@ rm -rf "$XATTR_SHIM_DIR"
 
 echo ""
 echo "=== Build Complete ==="
-echo "DMG: src-tauri/target/release/bundle/dmg/"
-echo "App: src-tauri/target/release/bundle/macos/KiroaaS.app"
+echo "DMG: $BUNDLE_DIR/dmg/"
+echo "App: $BUNDLE_DIR/macos/KiroaaS.app"
