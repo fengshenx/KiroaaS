@@ -10,7 +10,7 @@ jobs:
   build-x86_64:
     runs-on: macos-13
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Import Developer ID Certificate
         env:
@@ -43,7 +43,7 @@ jobs:
   build-arm64:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Import Developer ID Certificate
         env:
