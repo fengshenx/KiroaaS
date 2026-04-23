@@ -3,6 +3,23 @@ set -e
 
 echo "=== KiroaaS macOS Build Script ==="
 
+# Parse arguments
+ARCH="${1:-x86_64}"
+if [[ "$ARCH" == "arm" || "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+    CARGO_TARGET="aarch64-apple-darwin"
+    ARCH_LABEL="arm64"
+elif [[ "$ARCH" == "x86" || "$ARCH" == "x86_64" ]]; then
+    CARGO_TARGET="x86_64-apple-darwin"
+    ARCH_LABEL="x86_64"
+else
+    echo "Usage: $0 [arm|x86]"
+    echo "  arm  - build for aarch64-apple-darwin (Apple Silicon)"
+    echo "  x86  - build for x86_64-apple-darwin (Intel)"
+    exit 1
+fi
+
+echo "Building for: $CARGO_TARGET"
+
 # Check prerequisites
 echo "Checking prerequisites..."
 
@@ -73,12 +90,26 @@ SHIM
 chmod +x "$XATTR_SHIM_DIR/xattr"
 export PATH="$XATTR_SHIM_DIR:$PATH"
 
-# Build Tauri app
-echo "Building macOS app..."
-# export TAURI_PRIVATE_KEY=$(cat ~/.tauri/kiroaas.key)
-# export TAURI_KEY_PASSWORD=""
+# Build Tauri app with specified target
+echo "Building macOS app for $ARCH_LABEL..."
 export TAURI_SIGNING_IDENTITY="Developer ID Application: Mingxi Wu (65B2283FZJ)"
+
+# Build Rust binary first with correct target
+echo "Building Rust binary for $CARGO_TARGET..."
+cd src-tauri
+cargo build --release --target "$CARGO_TARGET"
+# Copy to where Tauri expects it (tauri build looks in target/release/)
+cp "target/$CARGO_TARGET/release/kiroaas" "target/release/kiroaas"
+cd ..
+
+# Now run tauri build (it will skip cargo build since binary exists)
 npm run tauri:build
+
+# Rename DMG to include arch label
+DMG_PATH=$(ls src-tauri/target/release/bundle/dmg/KiroaaS_*.dmg 2>/dev/null | head -1)
+if [[ -n "$DMG_PATH" ]]; then
+    mv "$DMG_PATH" "${DMG_PATH%.dmg}_${ARCH_LABEL}.dmg"
+fi
 
 # Notarize (requires APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID env vars)
 if [[ -n "$APPLE_ID" && -n "$APPLE_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
