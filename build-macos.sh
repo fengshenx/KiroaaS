@@ -88,8 +88,8 @@ npm install
 # Install Python dependencies
 echo "Installing Python dependencies..."
 cd python-backend
-pip3 install -r requirements.txt
-pip3 install pyinstaller
+pip3 install --break-system-packages -r requirements.txt
+pip3 install --break-system-packages pyinstaller
 cd ..
 
 # Build Python backend
