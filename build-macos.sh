@@ -48,6 +48,8 @@ else
     bash /tmp/miniconda.sh -b -p "$HOME/miniconda3"
     rm /tmp/miniconda.sh
     PYTHON_BIN="$HOME/miniconda3/bin/python3"
+    # Force conda to use the target subdir
+    "$HOME/miniconda3/bin/conda" config --env --set subdir osx-${ARCH_LABEL}
 fi
 
 # --- Node.js (nvm) ---
@@ -106,9 +108,7 @@ mkdir -p src-tauri/resources
 # Sign all native binaries in the Python backend before tarring
 echo "Signing Python backend binaries..."
 SIGN_IDENTITY="Developer ID Application: Mingxi Wu (65B2283FZJ)"
-find python-backend/build/dist/kiro-gateway -type f \( -name "*.so" -o -name "*.dylib" -o -type f -perm +111 \) | while read bin; do
-    codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime "$bin" 2>/dev/null || true
-done
+find python-backend/build/dist/kiro-gateway -type f \( -name "*.so" -o -name "*.dylib" -o -type f -perm +111 \) -print0 | xargs -0 -P 4 codesign --force --sign "$SIGN_IDENTITY" --signature-size 8192 2>&1 | head -50 || true
 
 cd python-backend/build/dist
 tar czf ../../../src-tauri/resources/kiro-gateway.tar.gz kiro-gateway
